@@ -4,6 +4,21 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 import pickle
 from gpt4all import GPT4All
+import redis
+import json
+import hashlib
+from datetime import timedelta
+
+
+redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+
+
+def hash_request(subject, sender, predefined_categories):
+    """
+    Create a unique hash for the LLM request to use as a Redis key.
+    """
+    request_string = f"{subject}|{sender}|{'|'.join(predefined_categories)}"
+    return hashlib.sha256(request_string.encode()).hexdigest()
 
 
 class Email:
@@ -87,6 +102,16 @@ def get_emails(service, max_results=10):
 
 def interact_with_llm(subject, sender, predefined_categories):
     """Send the email subject and sender to the LLM and return its response."""
+
+    # Create a unique key for this request
+    request_key = hash_request(subject, sender, predefined_categories)
+
+    # Check if the response is in Redis
+    cached_response = redis_client.get(request_key)
+    if cached_response:
+        print("Using cached response.")
+        return cached_response.decode()  # Return the cached response as a string
+
     model = GPT4All("Phi-3-mini-4k-instruct.Q4_0.gguf")
     with model.chat_session():
         prompt = (f"i got this Email from '{sender}' with subject: '{subject}' .\n"
@@ -101,6 +126,8 @@ def interact_with_llm(subject, sender, predefined_categories):
                   f" do not add any explanation or extra words. only the format above.")
 
         output = (model.generate(prompt=prompt, max_tokens=50))
+
+        redis_client.setex(request_key, timedelta(hours=4), output)
 
         return output
 
