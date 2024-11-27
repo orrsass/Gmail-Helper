@@ -85,17 +85,20 @@ def get_emails(service, max_results=10):
     return email_data
 
 
-def interact_with_llm(subject, sender):
+def interact_with_llm(subject, sender, predefined_categories):
     """Send the email subject and sender to the LLM and return its response."""
     model = GPT4All("Phi-3-mini-4k-instruct.Q4_0.gguf")
     with model.chat_session():
         prompt = (f"i got this Email from '{sender}' with subject: '{subject}' .\n"
-                  f"now i want you to categorize the email. \n"
-                  f"in addition to that rank its priority (Urgent, Normal, Spam), \n"
-                  f"also state if a action is required by me specific. select only those who are necessary\n"
+                  f"Predefined Categories: {predefined_categories}\n"
+                  f"Please categorize this email into one of the predefined categories if you find relevant one.\n"
+                  f"If none relevant, suggest a new category.\n"
+                  f"in addition to that rank its priority (Urgent, Normal, Spam)."
+                  f" State if a follow-up action is required only if: \n"
+                  f"-The email requests an explicit response or task from you.\n"
+                  f"- The email contains time-sensitive information that demands your attention.\n"
                   f" fill that format:'Category: [Category]\n Priority: [Priority]\n Action Required? : [Yes/No].\n"
-                  f" do not add any explanation or extra words. only the format above."
-                  f"think carefully if action is Required or not.")
+                  f" do not add any explanation or extra words. only the format above.")
 
         output = (model.generate(prompt=prompt, max_tokens=50))
 
@@ -113,6 +116,7 @@ def main():
         # Fetch the latest emails
         emails = get_emails(service, max_results=5)
         mails = []
+        categories = ["Work", "Personal", "Shopping", "Travel", "Finance", "Health"]
 
         print(f"Fetched {len(emails)} emails.")
 
@@ -120,7 +124,9 @@ def main():
         for email in emails:
             mail = Email(email['subject'], email['sender'])
             print(f"mail = {email['subject'], email['sender']}")
-            output = interact_with_llm(email['subject'], email['sender'])
+            output = interact_with_llm(email['subject'], email['sender'], categories)
+            print(f"output = {output}")
+
             lines = output.strip().split('\n')
             for line in lines:
                 if line.startswith("Category:"):
@@ -132,11 +138,12 @@ def main():
             mails.append(mail)
         print(mails)
 
-        action_required_emails = [mail for mail in mails if mail.action_required]
+        action_required_emails = [mail for mail in mails if mail.priority == "Spam"]
+
         # Display the emails requiring action
         print("\nEmails Requiring Action:")
         for mail in action_required_emails:
-            print(mail)
+            print(f"{mail}\n")
 
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -144,5 +151,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
