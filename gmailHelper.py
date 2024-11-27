@@ -1,3 +1,4 @@
+import base64
 import os
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -8,7 +9,7 @@ import redis
 import json
 import hashlib
 from datetime import timedelta
-
+import matplotlib.pyplot as plt
 
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 
@@ -105,8 +106,8 @@ def interact_with_llm(subject, sender, predefined_categories):
 
     # Create a unique key for this request
     request_key = hash_request(subject, sender, predefined_categories)
-
-    # Check if the response is in Redis
+    #
+    # # Check if the response is in Redis
     cached_response = redis_client.get(request_key)
     if cached_response:
         print("Using cached response.")
@@ -118,10 +119,11 @@ def interact_with_llm(subject, sender, predefined_categories):
                   f"Predefined Categories: {predefined_categories}\n"
                   f"Please categorize this email into one of the predefined categories if you find relevant one.\n"
                   f"If none relevant, suggest a new category.\n"
-                  f"in addition to that rank its priority (Urgent, Normal, Spam)."
+                  f"in addition to that rank its priority in scale of 1-10, 10 is urgent, 1 is can wait)."
                   f" State if a follow-up action is required only if: \n"
                   f"-The email requests an explicit response or task from you.\n"
                   f"- The email contains time-sensitive information that demands your attention.\n"
+                  f"- tickets or reports does not count as action required.\n"
                   f" fill that format:'Category: [Category]\n Priority: [Priority]\n Action Required? : [Yes/No].\n"
                   f" do not add any explanation or extra words. only the format above.")
 
@@ -141,7 +143,7 @@ def main():
         service = authenticate_gmail()
 
         # Fetch the latest emails
-        emails = get_emails(service, max_results=5)
+        emails = get_emails(service, max_results=8)
         mails = []
         categories = {"Work": [],
                       "Personal": [],
@@ -155,6 +157,7 @@ def main():
 
         # Print out subject and sender of each email
         for email in emails:
+            print(email)
             mail = Email(email['subject'], email['sender'])
             print(f"mail = {email['subject'], email['sender']}")
             output = interact_with_llm(email['subject'], email['sender'], predefined_categories)
@@ -175,14 +178,16 @@ def main():
             mails.append(mail)
         print(mails)
 
-        print(categories["Finance"])
+        category_counts = {category: len(emails) for category, emails in categories.items()}
 
-        action_required_emails = [mail for mail in mails if mail.action_required is True]
-
-        # Display the emails requiring action
-        print("\nEmails Requiring Action:")
-        for mail in action_required_emails:
-            print(f"{mail}\n")
+        print("\nCategory Distribution Pie Chart:")
+        labels = list(category_counts.keys())
+        sizes = list(category_counts.values())
+        plt.figure(figsize=(7, 7))  # Optional: to control figure size
+        plt.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+        plt.title("Distribution of Emails Across Categories")
+        plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+        plt.show()
 
     except Exception as e:
         print(f"An error occurred: {e}")
