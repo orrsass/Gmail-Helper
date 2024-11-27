@@ -21,9 +21,9 @@ class Email:
         """
         String representation for debugging and printing.
         """
-        return (f"Email(subject='{self.subject}', sender='{self.sender}', "
-                f"category='{self.category}', priority='{self.priority}', "
-                f"action_required={self.action_required})")
+        return (f"Email (subject:'{self.subject}', sender:'{self.sender}', "
+                f"category:'{self.category}', priority:'{self.priority}', "
+                f"action_required:{self.action_required})")
 
 
 # Define the Gmail API scope
@@ -116,7 +116,13 @@ def main():
         # Fetch the latest emails
         emails = get_emails(service, max_results=5)
         mails = []
-        categories = ["Work", "Personal", "Shopping", "Travel", "Finance", "Health"]
+        categories = {"Work": [],
+                      "Personal": [],
+                      "Shopping": [],
+                      "Travel": [],
+                      "Finance": [],
+                      "Health": []}
+        predefined_categories = list(categories.keys())
 
         print(f"Fetched {len(emails)} emails.")
 
@@ -124,13 +130,17 @@ def main():
         for email in emails:
             mail = Email(email['subject'], email['sender'])
             print(f"mail = {email['subject'], email['sender']}")
-            output = interact_with_llm(email['subject'], email['sender'], categories)
+            output = interact_with_llm(email['subject'], email['sender'], predefined_categories)
             print(f"output = {output}")
 
             lines = output.strip().split('\n')
             for line in lines:
                 if line.startswith("Category:"):
                     mail.category = line.split(":")[1].strip()
+                    if mail.category in predefined_categories:
+                        categories[mail.category].append(mail)
+                    else:
+                        categories[mail.category] = [mail]
                 elif line.startswith("Priority:"):
                     mail.priority = line.split(":")[1].strip()
                 elif line.startswith("Action Required?"):
@@ -138,7 +148,9 @@ def main():
             mails.append(mail)
         print(mails)
 
-        action_required_emails = [mail for mail in mails if mail.priority == "Spam"]
+        print(categories["Finance"])
+
+        action_required_emails = [mail for mail in mails if mail.action_required is True]
 
         # Display the emails requiring action
         print("\nEmails Requiring Action:")
