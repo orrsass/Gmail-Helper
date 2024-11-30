@@ -37,9 +37,9 @@ class Email:
         """
         String representation for debugging and printing.
         """
-        return (f"Email (subject:'{self.subject}', sender:'{self.sender}', "
-                f"category:'{self.category}', priority:'{self.priority}', "
-                f"action_required:{self.action_required})")
+        return (f"subject:'{self.subject}'\nsender:'{self.sender}'\n"
+                f"category:'{self.category}'\npriority:'{self.priority}'\n"
+                f"action_required:{self.action_required}")
 
 
 # Define the Gmail API scope
@@ -101,35 +101,49 @@ def get_emails(service, max_results=10):
     return email_data
 
 
-def interact_with_llm(subject, sender, predefined_categories):
+def interact_with_llm(subject, sender, predefined_categories, task):
     """Send the email subject and sender to the LLM and return its response."""
 
-    # Create a unique key for this request
-    request_key = hash_request(subject, sender, predefined_categories)
-    #
-    # # Check if the response is in Redis
-    cached_response = redis_client.get(request_key)
-    if cached_response:
-        print("Using cached response.")
-        return cached_response.decode()  # Return the cached response as a string
+    # # Create a unique key for this request
+    # request_key = hash_request(subject, sender, predefined_categories)
+    # #
+    # # # Check if the response is in Redis
+    # cached_response = redis_client.get(request_key)
+    # if cached_response:
+    #     print("Using cached response.")
+    #     return cached_response.decode()  # Return the cached response as a string
+
+    if task == "category":
+        prompt = (f"Email from '{sender}' with subject: '{subject}'.\n"
+                  f"Predefined Categories: {predefined_categories}\n"
+                  f"Please categorize this email into one of the predefined categories "
+                  f"or suggest a new category if none is relevant.\n"
+                  f"Respond only with 'Category: [Category]'."
+                  f"ddo not add any explanation or extra words. only the format above.")
+    elif task == "priority":
+        prompt = (f"Email from '{sender}' with subject: '{subject}'.\n"
+                  f"Rank the priority of this email on a scale of 1-10 (10 is urgent, 1 can wait).\n"
+                  f"Respond in that format 'Priority: [Priority]' only.\n"
+                  f"e.g 'Priority: 5'\n"
+                  f"do not add any explanation or extra words!. only the format above!."
+                  f"do not explain only the given format."
+                  f"do not add notes or comments.")
+    elif task == "action":
+        prompt = (f"Email from '{sender}' with subject: '{subject}'.\n"
+                  f"Determine if a follow-up action is required for this email.\n"
+                  f"Action required if:\n"
+                  f"- The email requests an explicit response or task from you.\n"
+                  f"- The email contains time-sensitive information that demands your attention.\n"
+                  f"Tickets or reports does not count as requiring action.\n"
+                  f"Respond only with 'Action Required: [Yes/No]'."
+                  f"do not add any explanation or extra words. only the format above.")
 
     model = GPT4All("Phi-3-mini-4k-instruct.Q4_0.gguf")
     with model.chat_session():
-        prompt = (f"i got this Email from '{sender}' with subject: '{subject}' .\n"
-                  f"Predefined Categories: {predefined_categories}\n"
-                  f"Please categorize this email into one of the predefined categories if you find relevant one.\n"
-                  f"If none relevant, suggest a new category.\n"
-                  f"in addition to that rank its priority in scale of 1-10, 10 is urgent, 1 is can wait)."
-                  f" State if a follow-up action is required only if: \n"
-                  f"-The email requests an explicit response or task from you.\n"
-                  f"- The email contains time-sensitive information that demands your attention.\n"
-                  f"- tickets or reports does not count as action required.\n"
-                  f" fill that format:'Category: [Category]\n Priority: [Priority]\n Action Required? : [Yes/No].\n"
-                  f" do not add any explanation or extra words. only the format above.")
 
-        output = (model.generate(prompt=prompt, max_tokens=50))
+        output = (model.generate(prompt=prompt, max_tokens=100))
 
-        redis_client.setex(request_key, timedelta(hours=4), output)
+        # redis_client.setex(request_key, timedelta(hours=4), output)
 
         return output
 
@@ -143,7 +157,7 @@ def main():
         service = authenticate_gmail()
 
         # Fetch the latest emails
-        emails = get_emails(service, max_results=8)
+        emails = get_emails(service, max_results=3)
         mails = []
         categories = {"Work": [],
                       "Personal": [],
@@ -157,37 +171,36 @@ def main():
 
         # Print out subject and sender of each email
         for email in emails:
-            print(email)
+            print(f"email = {email}\n")
             mail = Email(email['subject'], email['sender'])
-            print(f"mail = {email['subject'], email['sender']}")
-            output = interact_with_llm(email['subject'], email['sender'], predefined_categories)
-            print(f"output = {output}")
+            print(f"mail = {email['subject'], email['sender']}\n")
+            category = interact_with_llm(email['subject'], email['sender'], predefined_categories, "category")
+            priority = interact_with_llm(email['subject'], email['sender'], predefined_categories, "priority")
+            action = interact_with_llm(email['subject'], email['sender'], predefined_categories, "action")
+            print(f"category = {category}\npriority = {priority}\naction = {action}\n")
 
-            lines = output.strip().split('\n')
-            for line in lines:
-                if line.startswith("Category:"):
-                    mail.category = line.split(":")[1].strip()
-                    if mail.category in predefined_categories:
-                        categories[mail.category].append(mail)
-                    else:
-                        categories[mail.category] = [mail]
-                elif line.startswith("Priority:"):
-                    mail.priority = line.split(":")[1].strip()
-                elif line.startswith("Action Required?"):
-                    mail.action_required = line.split(":")[1].strip() == "Yes"
+            mail.category = category.split(":")[1].strip()
+            if mail.category in predefined_categories:
+                categories[mail.category].append(mail)
+            else:
+                categories[mail.category] = [mail]
+
+            mail.priority = priority.split(":")[1].strip().splitlines()[0]
+            mail.action_required = action.split(":")[1].strip() == "Yes"
             mails.append(mail)
-        print(mails)
 
-        category_counts = {category: len(emails) for category, emails in categories.items()}
-
-        print("\nCategory Distribution Pie Chart:")
-        labels = list(category_counts.keys())
-        sizes = list(category_counts.values())
-        plt.figure(figsize=(7, 7))  # Optional: to control figure size
-        plt.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
-        plt.title("Distribution of Emails Across Categories")
-        plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-        plt.show()
+        for mail in mails:
+            print(mail)
+        # category_counts = {category: len(emails) for category, emails in categories.items()}
+        #
+        # print("\nCategory Distribution Pie Chart:")
+        # labels = list(category_counts.keys())
+        # sizes = list(category_counts.values())
+        # plt.figure(figsize=(7, 7))  # Optional: to control figure size
+        # plt.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+        # plt.title("Distribution of Emails Across Categories")
+        # plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+        # plt.show()
 
     except Exception as e:
         print(f"An error occurred: {e}")
