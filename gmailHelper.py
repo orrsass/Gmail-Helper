@@ -10,15 +10,16 @@ import json
 import hashlib
 from datetime import timedelta
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 
 
-def hash_request(subject, sender, predefined_categories):
+def hash_request(subject, sender, predefined_categories, task):
     """
     Create a unique hash for the LLM request to use as a Redis key.
     """
-    request_string = f"{subject}|{sender}|{'|'.join(predefined_categories)}"
+    request_string = f"{subject}|{sender}|{'|'.join(predefined_categories)}|{task}"
     return hashlib.sha256(request_string.encode()).hexdigest()
 
 
@@ -37,7 +38,7 @@ class Email:
         """
         String representation for debugging and printing.
         """
-        return (f"subject:'{self.subject}'\nsender:'{self.sender}'\n"
+        return (f"\nsubject:'{self.subject}'\nsender:'{self.sender}'\n"
                 f"category:'{self.category}'\npriority:'{self.priority}'\n"
                 f"action_required:{self.action_required}")
 
@@ -103,47 +104,60 @@ def get_emails(service, max_results=10):
 
 def interact_with_llm(subject, sender, predefined_categories, task):
     """Send the email subject and sender to the LLM and return its response."""
-
-    # # Create a unique key for this request
-    # request_key = hash_request(subject, sender, predefined_categories)
-    # #
-    # # # Check if the response is in Redis
-    # cached_response = redis_client.get(request_key)
-    # if cached_response:
-    #     print("Using cached response.")
-    #     return cached_response.decode()  # Return the cached response as a string
+    # Create a unique key for this request
+    request_key = hash_request(subject, sender, predefined_categories, task)
+    # Check if the response is in Redis
+    cached_response = redis_client.get(request_key)
+    if cached_response:
+        print("Using cached response.")
+        return cached_response.decode()  # Return the cached response as a string
 
     if task == "category":
-        prompt = (f"Email from '{sender}' with subject: '{subject}'.\n"
-                  f"Predefined Categories: {predefined_categories}\n"
-                  f"Please categorize this email into one of the predefined categories "
-                  f"or suggest a new category if none is relevant.\n"
-                  f"Respond only with 'Category: [Category]'."
-                  f"ddo not add any explanation or extra words. only the format above.")
+        prompt = ("Categorize the following email concisely.\n\n"
+                  f"Sender: '{sender}'\n"
+                  f"Subject: '{subject}'\n"
+                  f"Predefined Categories: {predefined_categories}\n\n"
+                  "Task: Select the most relevant category from the predefined list, "
+                  "or suggest a new category if none apply.\n"
+                  "Output Format: 'Category: [Category]'.\n"
+                  "Do not include any explanations or additional text.")
     elif task == "priority":
-        prompt = (f"Email from '{sender}' with subject: '{subject}'.\n"
-                  f"Rank the priority of this email on a scale of 1-10 (10 is urgent, 1 can wait).\n"
-                  f"Respond in that format 'Priority: [Priority]' only.\n"
-                  f"e.g 'Priority: 5'\n"
-                  f"do not add any explanation or extra words!. only the format above!."
-                  f"do not explain only the given format."
-                  f"do not add notes or comments.")
+        prompt = ("Determine the priority of the following email on a scale of 1-10 (10 is urgent, 1 can wait):\n\n"
+                  f"Sender: '{sender}'\n"
+                  f"Subject: '{subject}'\n\n"
+                  "Criteria:\n"
+                  "- Emails from individuals have a higher priority than those from newsletters or companies.\n\n"
+                  "Output Format:\n"
+                  "Respond strictly in this format: 'Priority: [Priority]'.\n"
+                  "Example: 'Priority: 5'.\n\n"
+                  "Instructions:\n"
+                  "- Do not include any explanations, comments, reasoning, or additional text. write "
+                  "number between 1 to 10 only\n"
+                  "- Do not write anything other than the format: 'Priority: [Priority]'.\n"
+                  "- Violating this format is strictly prohibited.\n"
+                  "- Ensure that the output includes only the priority value in the required format and nothing else."
+
+                  )
     elif task == "action":
-        prompt = (f"Email from '{sender}' with subject: '{subject}'.\n"
-                  f"Determine if a follow-up action is required for this email.\n"
-                  f"Action required if:\n"
-                  f"- The email requests an explicit response or task from you.\n"
-                  f"- The email contains time-sensitive information that demands your attention.\n"
-                  f"Tickets or reports does not count as requiring action.\n"
-                  f"Respond only with 'Action Required: [Yes/No]'."
-                  f"do not add any explanation or extra words. only the format above.")
+        prompt = (f"Instructions: \n"
+                  f"1. Determine if follow-up action is required for the given email.\n"
+                  f"2. If 'noreply' or 'no-reply' appears in the sender or subject, no action is required.\n"
+                  f"3. Action is required only if:\n"
+                  f"   - The email requests an explicit response or task from you.\n"
+                  f"   - The email contains time-sensitive information needing your attention.\n"
+                  f"4. Tickets or reports do not require action.\n\n"
+                  f"Respond strictly in this format: 'Action Required: [Yes/No]'.\n"
+                  f"Do not include any extra words or explanations.\n\n"
+                  f"Email Data:\n"
+                  f"- Sender: '{sender}'\n"
+                  f"- Subject: '{subject}")
 
     model = GPT4All("Phi-3-mini-4k-instruct.Q4_0.gguf")
     with model.chat_session():
 
         output = (model.generate(prompt=prompt, max_tokens=100))
 
-        # redis_client.setex(request_key, timedelta(hours=4), output)
+        redis_client.setex(request_key, timedelta(hours=4), output)
 
         return output
 
@@ -155,52 +169,62 @@ def main():
     try:
         # Authenticate with Gmail and get the service object
         service = authenticate_gmail()
-
+        print(f"Fetching 100 emails.")
         # Fetch the latest emails
-        emails = get_emails(service, max_results=3)
+        emails = get_emails(service, max_results=100)
         mails = []
         categories = {"Work": [],
-                      "Personal": [],
                       "Shopping": [],
-                      "Travel": [],
                       "Finance": [],
-                      "Health": []}
+                      "Health": [],
+                      "Tickets": [],
+                      "Payment Confirmations": []
+                      }
         predefined_categories = list(categories.keys())
 
         print(f"Fetched {len(emails)} emails.")
 
-        # Print out subject and sender of each email
-        for email in emails:
-            print(f"email = {email}\n")
-            mail = Email(email['subject'], email['sender'])
-            print(f"mail = {email['subject'], email['sender']}\n")
-            category = interact_with_llm(email['subject'], email['sender'], predefined_categories, "category")
-            priority = interact_with_llm(email['subject'], email['sender'], predefined_categories, "priority")
-            action = interact_with_llm(email['subject'], email['sender'], predefined_categories, "action")
-            print(f"category = {category}\npriority = {priority}\naction = {action}\n")
+        with tqdm(total=len(emails), desc="Processing Emails", unit="email") as pbar:
 
-            mail.category = category.split(":")[1].strip()
-            if mail.category in predefined_categories:
-                categories[mail.category].append(mail)
-            else:
-                categories[mail.category] = [mail]
+            for email in emails:
+                mail = Email(email['subject'], email['sender'])
+                category = interact_with_llm(email['subject'], email['sender'], predefined_categories, "category")
+                priority = interact_with_llm(email['subject'], email['sender'], predefined_categories, "priority")
+                action = interact_with_llm(email['subject'], email['sender'], predefined_categories, "action")
+                mail.category = category.split(":")[1].strip()
+                if mail.category in predefined_categories:
+                    categories[mail.category].append(mail)
+                else:
+                    categories[mail.category] = [mail]
 
-            mail.priority = priority.split(":")[1].strip().splitlines()[0]
-            mail.action_required = action.split(":")[1].strip() == "Yes"
-            mails.append(mail)
+                mail.priority = priority.split(":")[1].strip().splitlines()[0]
+                mail.action_required = action.split(":")[1].strip() == "Yes"
+                mails.append(mail)
+                pbar.update(1)
 
-        for mail in mails:
+        action_required_mails = sorted(
+            [mail for mail in mails if mail.action_required],
+            key=lambda x: x.priority,
+            reverse=True
+        )
+
+        print("\nAction Required Emails (Ordered by Priority):")
+        for mail in action_required_mails:
             print(mail)
-        # category_counts = {category: len(emails) for category, emails in categories.items()}
-        #
-        # print("\nCategory Distribution Pie Chart:")
-        # labels = list(category_counts.keys())
-        # sizes = list(category_counts.values())
-        # plt.figure(figsize=(7, 7))  # Optional: to control figure size
-        # plt.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
-        # plt.title("Distribution of Emails Across Categories")
-        # plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-        # plt.show()
+        print(f"\n num of mails = {len(mails)}")
+
+        category_counts = {category: len(emails) for category, emails in categories.items()}
+
+        print("\nCategory Distribution Pie Chart:")
+        labels = list(category_counts.keys())
+        sizes = list(category_counts.values())
+        plt.figure(figsize=(7, 7))  # Optional: to control figure size
+        plt.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+        plt.title("Distribution of Emails Across Categories")
+        plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+        plt.show()
+
+        print("\nAction needed Emails Ordered by Priority shown above")
 
     except Exception as e:
         print(f"An error occurred: {e}")
