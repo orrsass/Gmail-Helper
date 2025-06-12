@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "email-classifier"
+version = "0.1.0"
+description = "A professional, scalable email classifier using GPT4All, Gmail API, Redis, and Matplotlib."
+authors = [{name = "Your Name", email = "your@email.com"}]
+dependencies = [
+    "google-api-python-client",
+    "google-auth-oauthlib",
+    "google-auth-httplib2",
+    "gpt4all",
+    "redis",
+    "matplotlib",
+    "tqdm",
+    "python-dotenv"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"] 
