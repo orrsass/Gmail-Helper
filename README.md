@@ -62,7 +62,7 @@ export MODEL_PATH="/path/to/gpt4all-model.bin"
 
 ##  Usage
 
-Use the install script’s console command:
+Use the install script's console command:
 
 ```bash
 # Fetch your latest 50 emails
