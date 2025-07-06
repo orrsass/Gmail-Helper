@@ -26,6 +26,7 @@ A lightweight, extensible command‑line tool to fetch, categorize, and visualiz
 * **Gmail API** (`google-api-python-client`, `google-auth-oauthlib`): Secure OAuth2 authentication and message retrieval.
 * **GPT4All**: On‑device LLM for fast, private email classification without external API calls.
 * **Redis** (`redis-py`): Caching layer to store classification results and speed up subsequent runs.
+*   **Redis** (`redis-py`): Caching layer to store classification results and speed up subsequent runs.
 
 ---
 
@@ -34,8 +35,8 @@ A lightweight, extensible command‑line tool to fetch, categorize, and visualiz
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/your‑username/email-classifier.git
-   cd email-classifier
+   git clone https://github.com/orrsass/Gmail-Helper.git
+   cd Gmail-Helper
    ```
 2. Install dependencies (via pip):
 

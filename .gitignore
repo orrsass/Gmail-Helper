@@ -69,3 +69,6 @@ coverage.xml
 credentials.json
 token.pickle
 token.json
+
+*.zip
+
