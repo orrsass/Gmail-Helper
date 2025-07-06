@@ -26,7 +26,6 @@ A lightweight, extensible command‑line tool to fetch, categorize, and visualiz
 * **Gmail API** (`google-api-python-client`, `google-auth-oauthlib`): Secure OAuth2 authentication and message retrieval.
 * **GPT4All**: On‑device LLM for fast, private email classification without external API calls.
 * **Redis** (`redis-py`): Caching layer to store classification results and speed up subsequent runs.
-*   **Redis** (`redis-py`): Caching layer to store classification results and speed up subsequent runs.
 
 ---
 
